@@ -6,43 +6,54 @@
     <title>Sketchboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; overflow: hidden; background: #f0f0f0; display: flex; flex-direction: column; height: 100vh; }
-        #canvasContainer { flex-grow: 1; position: relative; background: white; }
-        canvas { display: block; touch-action: none; }
-        /* 隱藏所有狀態文字，僅供魔術師觀察的極小提示 */
-        #magicStatus { 
-            position: absolute; bottom: 5px; right: 5px; 
-            font-size: 8px; color: rgba(0,0,0,0.05); /* 幾乎看不見 */
-            pointer-events: none;
-        }
-        #controls { 
-            background: #e0e0e0; padding: 15px; display: flex; 
-            justify-content: space-around; align-items: center; 
-            border-top: 1px solid #ccc;
-        }
-        .tool { width: 35px; height: 35px; border-radius: 5px; border: 1px solid #999; cursor: pointer; }
-        .active { border: 2px solid #000; box-shadow: 0 0 5px rgba(0,0,0,0.3); }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { margin: 0; overflow: hidden; background: #f0f0f0; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; }
         
-        /* 手寫數字樣式 */
+        /* 繪圖區域 */
+        #canvasContainer { flex-grow: 1; position: relative; background: white; cursor: crosshair; }
+        canvas { display: block; touch-action: none; }
+
+        /* 隱藏的魔術狀態提示 (極小且透明) */
+        #magicStatus { 
+            position: absolute; bottom: 10px; right: 10px; 
+            font-size: 10px; color: rgba(0,0,0,0.03); 
+            pointer-events: none; z-index: 10;
+        }
+
+        /* 數字顯示層 (手寫感) */
         #predictedNumber { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            font-size: 40vw; font-family: 'Caveat', cursive; color: #000; 
-            opacity: 0; transition: opacity 1.5s ease-in; z-index: 100;
-            pointer-events: none; white-space: nowrap;
+            font-size: 45vw; font-family: 'Caveat', cursive; color: #000; 
+            opacity: 0; pointer-events: none; z-index: 100;
+            white-space: nowrap;
+            /* 預設為 0.3 秒，達到翻轉即出現的視覺效果 */
+            transition: opacity 0.3s ease-out; 
         }
+
+        /* 下方工具列 */
+        #controls { 
+            background: #e5e5e5; height: 80px; padding: 10px; 
+            display: flex; justify-content: space-around; align-items: center; 
+            border-top: 1px solid #ccc; z-index: 200;
+        }
+        .tool { width: 45px; height: 45px; border-radius: 8px; border: 1px solid #aaa; cursor: pointer; transition: all 0.2s; }
+        .tool.active { border: 3px solid #000; transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+        #eraser { background: #fff; display: flex; justify-content: center; align-items: center; font-size: 14px; color: #666; font-weight: bold; }
     </style>
 </head>
 <body>
+
     <div id="canvasContainer">
         <canvas id="drawingCanvas"></canvas>
         <div id="predictedNumber"></div>
         <div id="magicStatus">.</div>
     </div>
+
     <div id="controls">
-        <div class="tool" style="background: black;" onclick="setTool('black', this)"></div>
-        <div class="tool" style="background: red;" onclick="setTool('red', this)"></div>
-        <div class="tool" style="background: blue;" onclick="setTool('blue', this)"></div>
-        <div id="eraser" class="tool" style="background: #eee; display: flex; justify-content: center; align-items: center; font-size: 12px;" onclick="setTool('eraser', this)">消</div>
+        <div class="tool active" style="background: black;" onclick="setTool('black', this)"></div>
+        <div class="tool" style="background: #e74c3c;" onclick="setTool('red', this)"></div>
+        <div class="tool" style="background: #3498db;" onclick="setTool('blue', this)"></div>
+        <div id="eraser" class="tool" onclick="setTool('eraser', this)">消</div>
     </div>
 
     <script>
@@ -50,6 +61,7 @@
         const ctx = canvas.getContext('2d');
         const numDiv = document.getElementById('predictedNumber');
         const magicStatus = document.getElementById('magicStatus');
+        const controls = document.getElementById('controls');
         
         let painting = false;
         let tool = 'black';
@@ -58,44 +70,47 @@
         let isFaceDown = false;
         let hasSpoken = false;
 
+        // 初始化畫布
         function resize() {
             canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight - document.getElementById('controls').offsetHeight;
+            canvas.height = window.innerHeight - controls.offsetHeight;
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
         window.addEventListener('resize', resize);
         resize();
 
+        // 工具選擇
         function setTool(t, el) {
             tool = t;
             document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
             el.classList.add('active');
-            
-            // 第一次點擊畫筆時，靜悄悄啟動語音權限請求
-            if (!hasStarted) {
-                startVoiceEngine();
-                hasStarted = true;
-            }
+            if (!hasStarted) { startVoiceEngine(); hasStarted = true; }
         }
 
         // 繪圖邏輯
-        function start(e) { 
-            painting = true; 
-            draw(e); 
+        function start(e) {
+            painting = true;
             if (!hasStarted) { startVoiceEngine(); hasStarted = true; }
+            draw(e);
         }
         function end() { painting = false; ctx.beginPath(); }
         function draw(e) {
-            if (!painting) return;
+            if (!painting || isFaceDown) return;
             const t = e.touches ? e.touches[0] : e;
-            ctx.lineWidth = tool === 'eraser' ? 30 : 5;
+            const rect = canvas.getBoundingClientRect();
+            const x = t.clientX - rect.left;
+            const y = t.clientY - rect.top;
+
+            ctx.lineWidth = tool === 'eraser' ? 40 : 6;
             ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             ctx.strokeStyle = tool === 'eraser' ? 'white' : tool;
-            ctx.lineTo(t.clientX, t.clientY);
+
+            ctx.lineTo(x, y);
             ctx.stroke();
             ctx.beginPath();
-            ctx.moveTo(t.clientX, t.clientY);
+            ctx.moveTo(x, y);
         }
 
         canvas.addEventListener('mousedown', start);
@@ -103,53 +118,73 @@
         canvas.addEventListener('mouseup', end);
         canvas.addEventListener('touchend', end);
         canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e); }, { passive: false });
 
-        // 語音引擎 (靜默模式)
+        // 語音辨識核心
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition = SpeechRecognition ? new SpeechRecognition() : null;
+
         if (recognition) {
             recognition.lang = 'zh-TW';
             recognition.interimResults = true;
             recognition.continuous = true;
+
             recognition.onresult = (e) => {
-                let text = Array.from(e.results).map(r => r[0].transcript).join('');
-                let match = text.match(/\d+/);
+                let text = "";
+                for (let i = e.resultIndex; i < e.results.length; i++) {
+                    text += e.results[i][0].transcript;
+                }
+                
+                // 尋找 1-99 的數字
+                let match = text.match(/\d+/g);
                 if (match) {
-                    predictedNumber = match[0];
-                    hasSpoken = true;
-                    magicStatus.innerText = "v"; // 極小提示：已收到數字
-                    if (navigator.vibrate) navigator.vibrate(50);
+                    let lastNum = match[match.length - 1];
+                    if (parseInt(lastNum) < 100) {
+                        predictedNumber = lastNum;
+                        hasSpoken = true;
+                        numDiv.innerText = predictedNumber; // 預載入數字
+                        magicStatus.innerText = "v"; // 密碼：辨識成功
+                        if (navigator.vibrate) navigator.vibrate(50);
+                    }
                 }
             };
+            // 斷線自動重連
             recognition.onend = () => { if (isFaceDown && !hasSpoken) recognition.start(); };
         }
 
         function startVoiceEngine() {
-            try { recognition.start(); } catch(e) {}
+            if (recognition) {
+                try { recognition.start(); } catch(err) { console.log("Started"); }
+            }
         }
 
-        // 翻轉偵測
+        // 翻轉偵測邏輯 (關鍵修正：靈敏度與即時性)
         window.addEventListener('deviceorientation', (e) => {
-            if (Math.abs(e.beta) > 160) { // 螢幕朝下
+            const beta = e.beta; // 前後傾斜
+
+            // 1. 螢幕朝下 (蓋在桌上)
+            if (Math.abs(beta) > 150) { 
                 if (!isFaceDown) {
                     isFaceDown = true;
-                    // 螢幕朝下時，悄悄清空畫布
+                    // 螢幕朝下時瞬間清空畫布，不留動畫
                     ctx.fillStyle = 'white';
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    numDiv.style.transition = "none"; 
+                    numDiv.style.opacity = "0";
                 }
-            } else if (Math.abs(e.beta) < 40) { // 螢幕朝上
+            } 
+            // 2. 螢幕翻回朝上 (準備揭曉)
+            else if (Math.abs(beta) < 50) { 
                 if (isFaceDown) {
                     isFaceDown = false;
                     if (hasSpoken) {
-                        numDiv.innerText = predictedNumber;
+                        // 0.3 秒顯現，極致流暢
+                        numDiv.style.transition = "opacity 0.3s ease-out"; 
                         numDiv.style.opacity = "1";
                     }
                 }
             }
         });
-
-        document.querySelectorAll('.tool')[0].classList.add('active');
     </script>
 </body>
 </html>
