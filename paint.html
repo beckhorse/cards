@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Mind Canvas - Magic is Life</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0a0a0a; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; }
+        #canvasContainer { flex-grow: 1; position: relative; }
+        #drawingCanvas { background: white; touch-action: none; /* 防止 Chrome 預設的滑動行為 */ }
+        #overlayCanvas { position: absolute; top: 0; left: 0; pointer-events: none; /* 不影響下層繪圖 */ }
+        #controls { background: #333; padding: 10px; display: flex; justify-content: space-around; align-items: center; }
+        .color-box, #eraser { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #555; cursor: pointer; }
+        .color-box.active, #eraser.active { border-color: #00ffff; box-shadow: 0 0 8px #00ffff; }
+        #eraser { background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M14.06 9.06L15 8l1.75 1.75L12 14.5L14.06 9.06zM11 15v-4.5L15.5 6l2.5 2.5-4.5 4.5H11z"/><path d="M0 0h24v24H0z" fill="none"/></svg>') no-repeat center center / 70% auto; background-color: #666; }
+        #status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ff00; font-size: 2em; text-align: center; width: 100%; z-index: 1000; }
+        #predictedNumber { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            font-size: 15vw; font-weight: bold; color: #f00; text-shadow: 0 0 20px #f00, 0 0 30px rgba(255,0,0,0.5); 
+            opacity: 0; transition: opacity 1s ease-out; z-index: 2000; 
+            pointer-events: none; /* 不阻礙底層操作 */
+        }
+    </style>
+</head>
+<body>
+    <div id="canvasContainer">
+        <canvas id="drawingCanvas"></canvas>
+        <div id="status"></div>
+        <div id="predictedNumber"></div>
+    </div>
+    <div id="controls">
+        <div class="color-box" style="background-color: black;" data-color="black"></div>
+        <div class="color-box" style="background-color: red;" data-color="red"></div>
+        <div class="color-box" style="background-color: blue;" data-color="blue"></div>
+        <div class="color-box" style="background-color: green;" data-color="green"></div>
+        <div id="eraser"></div>
+    </div>
+
+    <script>
+        const drawingCanvas = document.getElementById('drawingCanvas');
+        const ctx = drawingCanvas.getContext('2d');
+        const controls = document.getElementById('controls');
+        const statusDiv = document.getElementById('status');
+        const predictedNumberDiv = document.getElementById('predictedNumber');
+        
+        let painting = false;
+        let currentColor = 'black';
+        let strokeWidth = 5; // 預設畫筆粗細
+        let eraserWidth = 20; // 橡皮擦粗細
+
+        let predictedNumber = ""; // 觀眾喊出的數字
+        let isFaceDown = false; // 手機是否螢幕朝下
+        let hasSpoken = false; // 是否已語音辨識出數字
+        let isNumberShown = false; // 數字是否已顯示
+
+        // 初始化畫布大小
+        function resizeCanvas() {
+            drawingCanvas.width = window.innerWidth;
+            drawingCanvas.height = window.innerHeight - controls.offsetHeight;
+            // 繪圖板背景色
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); // 首次載入
+
+        // 畫筆控制
+        function startPosition(e) {
+            painting = true;
+            draw(e);
+        }
+        function endPosition() {
+            painting = false;
+            ctx.beginPath(); // 結束筆畫，避免連線
+        }
+        function draw(e) {
+            if (!painting) return;
+
+            // 獲取觸控點座標
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            ctx.lineWidth = (currentColor === 'eraser') ? eraserWidth : strokeWidth;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = (currentColor === 'eraser') ? 'white' : currentColor;
+
+            ctx.lineTo(clientX, clientY - controls.offsetHeight); // 減去控制列高度
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(clientX, clientY - controls.offsetHeight);
+        }
+
+        // 事件監聽 (支援觸控和滑鼠)
+        drawingCanvas.addEventListener('mousedown', startPosition);
+        drawingCanvas.addEventListener('mouseup', endPosition);
+        drawingCanvas.addEventListener('mousemove', draw);
+        drawingCanvas.addEventListener('touchstart', startPosition);
+        drawingCanvas.addEventListener('touchend', endPosition);
+        drawingCanvas.addEventListener('touchmove', draw);
+
+        // 顏色選擇器
+        controls.addEventListener('click', (e) => {
+            document.querySelectorAll('.color-box, #eraser').forEach(el => el.classList.remove('active'));
+            if (e.target.classList.contains('color-box')) {
+                currentColor = e.target.dataset.color;
+                e.target.classList.add('active');
+            } else if (e.target.id === 'eraser') {
+                currentColor = 'eraser';
+                e.target.classList.add('active');
+            }
+        });
+        document.querySelector('.color-box[data-color="black"]').classList.add('active'); // 預設黑色畫筆
+
+        // --- 魔術核心邏輯 ---
+
+        // 語音辨識設定
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'zh-TW';
+            recognition.interimResults = true;
+            recognition.continuous = true;
+
+            recognition.onresult = (event) => {
+                let currentTranscript = "";
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    currentTranscript += event.results[i][0].transcript;
+                }
+                
+                // 嘗試從語音中解析數字 (1-99)
+                const numMatch = currentTranscript.match(/\d+/); // 抓取連續數字
+                if (numMatch) {
+                    let num = parseInt(numMatch[0]);
+                    if (num >= 1 && num <= 99) {
+                        predictedNumber = num.toString();
+                        hasSpoken = true;
+                        statusDiv.innerText = `AI 已預測數字: ${predictedNumber}`;
+                        statusDiv.style.color = 'cyan';
+                        if (navigator.vibrate) navigator.vibrate(100); // 震動回饋
+                        recognition.stop(); // 辨識到數字就停止
+                    }
+                }
+            };
+
+            recognition.onend = () => {
+                // 如果還沒有辨識到數字，且手機是朝下狀態，則重啟辨識
+                if (!hasSpoken && isFaceDown) {
+                    try { recognition.start(); } catch(e) {}
+                }
+            };
+
+            recognition.onerror = (e) => {
+                console.error("語音辨識錯誤:", e);
+                statusDiv.innerText = "語音辨識失敗，請確認麥克風權限或網路";
+            };
+        } else {
+            statusDiv.innerText = "抱歉，您的瀏覽器不支援語音辨識。";
+        }
+
+
+        // 陀螺儀/DeviceOrientation 偵測 (手機翻轉)
+        window.addEventListener('deviceorientation', (event) => {
+            const beta = event.beta;  // 前後傾斜 (-180 到 180)
+            const gamma = event.gamma; // 左右傾斜 (-90 到 90)
+
+            // 判斷手機是否螢幕朝下 (beta 接近 180 或 -180，gamma 接近 0)
+            // 由於各手機傳感器差異，採用一個範圍
+            if (Math.abs(beta) > 150 && Math.abs(gamma) < 30) { 
+                if (!isFaceDown) { // 從螢幕朝上變成朝下
+                    isFaceDown = true;
+                    statusDiv.innerText = "【手機已朝下，AI 正在聆聽您的數字...】";
+                    statusDiv.style.color = '#fff';
+                    if (recognition && !hasSpoken) {
+                        try { recognition.start(); } catch(e) {}
+                    }
+                    // 清空畫布 (魔術效果)
+                    ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                }
+            } else { // 螢幕朝上
+                if (isFaceDown) { // 從螢幕朝下變成朝上
+                    isFaceDown = false;
+                    recognition.stop(); // 停止語音辨識
+
+                    if (hasSpoken && predictedNumber && !isNumberShown) {
+                        // 顯示預測數字
+                        predictedNumberDiv.innerText = predictedNumber;
+                        predictedNumberDiv.style.opacity = 1;
+                        statusDiv.innerText = "AI 心靈繪圖完成！";
+                        statusDiv.style.color = '#ff00ff';
+                        isNumberShown = true;
+                    } else if (!hasSpoken) {
+                        statusDiv.innerText = "【請先讓 AI 聽取數字】";
+                        statusDiv.style.color = '#00ff00';
+                    }
+                }
+            }
+        });
+
+        // 初始提示與啟動語音辨識
+        window.onclick = () => {
+            if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+                statusDiv.innerText = "請務必使用 HTTPS 網址開啟此網頁！";
+                statusDiv.style.color = 'red';
+                return;
+            }
+            if (recognition && !isFaceDown && !hasSpoken) {
+                // 如果還沒有辨識，點擊螢幕可以開始監聽
+                // statusDiv.innerText = "【請將手機螢幕朝下，讓 AI 進入聆聽模式】";
+                // statusDiv.style.color = '#fff';
+            }
+        };
+
+        // 首次載入時的提示
+        statusDiv.innerText = "【AI 心靈繪圖板】點擊畫面即可啟動";
+        statusDiv.style.color = '#00ff00';
+    </script>
+</body>
+</html>
