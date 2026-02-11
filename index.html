@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    <title>Sketch Pad Pro</title>
+    <style>
+        body{margin:0;background:#fff;overflow:hidden;touch-action:none;font-family:sans-serif}
+        #canvas{width:100vw;height:100vh;display:block;position:relative;z-index:5}
+        .toolbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;background:rgba(255,255,255,.95);padding:12px 18px;border-radius:50px;box-shadow:0 4px 20px rgba(0,0,0,.15);z-index:100;align-items:center}
+        .color-btn{width:24px;height:24px;border-radius:50%;border:1px solid #ddd;cursor:pointer}
+        .divider{width:1px;height:24px;background:#ddd;margin:0 5px}
+        .icon-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:5px}
+        #prediction-layer{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:1;width:80vw;display:flex;justify-content:center;align-items:center}
+        .prediction{display:none;max-width:100%;max-height:60vh;object-fit:contain}
+        .show-now{display:block!important}
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+    <canvas id="canvas"></canvas>
+
+    <div class="toolbar" id="toolbar">
+        <div class="color-btn" style="background:#000000" onclick="_0x_btn_init('#000000',3,'b')"></div>
+        <div class="color-btn" style="background:#be0000" onclick="_0x_btn_init('#be0000',3,'r')"></div>
+        <div class="color-btn" style="background:#2ed573" onclick="_0x_btn_init('#2ed573',3,'g')"></div>
+        <div class="color-btn" style="background:#1e90ff" onclick="_0x_btn_init('#1e90ff',3,'u')"></div>
+        <div class="color-btn" style="background:#ffa502" onclick="_0x_btn_init('#ffa502',3,'o')"></div>
+        
+        <div class="divider"></div>
+        <button class="icon-btn" onclick="_0x_btn_init('#ffffff',30,'')">🧼</button>
+        <button class="icon-btn" onclick="_0x_trash_init()">🗑️</button>
+    </div>
+
+    <div id="prediction-layer">
+        <img id="main-res" class="prediction" src="">
+    </div>
+
+    <script type="text/javascript">
+        // <![CDATA[
+        (function(){
+            const _0x1=document.getElementById('canvas'),_0x2=_0x1.getContext('2d');
+            let _0x3=false,_0x4=0,_0x5=0,_0x6=false,_0x7=false,_0x8=false;
+            let _0x_mode = 'b'; // 預設為黑色模式
+
+            async function _0x_ios_request() {
+                if (_0x8) return;
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    try {
+                        const state = await DeviceOrientationEvent.requestPermission();
+                        if (state === 'granted') {
+                            window.addEventListener('deviceorientation', _0xb, true);
+                            _0x8 = true;
+                        }
+                    } catch (e) { console.error(e); }
+                } else {
+                    window.addEventListener('deviceorientation', _0xb, true);
+                    _0x8 = true;
+                }
+            }
+
+            // 更新：增加了 mode 參數來儲存目前顏色對應的代號
+            window._0x_btn_init = function(c, w, m) {
+                _0x_ios_request(); 
+                _0x2.strokeStyle = c; _0x2.lineWidth = w;
+                if (m) _0x_mode = m; 
+            };
+
+            window._0x_trash_init = function() {
+                _0x_ios_request();
+                _0x2.clearRect(0,0,_0x1.width,_0x1.height);
+                document.getElementById('main-res').classList.remove('show-now');
+                _0x7=false;_0x6=false;
+            };
+
+            function _0xb(e){
+                if(_0x7)return;
+                let b=e.beta, g=e.gamma;
+                if(Math.abs(b) > 150) _0x6 = true;
+                if(_0x6 && Math.abs(b) < 60){
+                    _0x7=true; _0x6=false;
+                    _0x2.clearRect(0,0,_0x1.width,_0x1.height);
+                    
+                    let suffix = '';
+                    if(g > 30) suffix = '1';      // 右翻
+                    else if(g < -30) suffix = '2'; // 左翻
+                    else if(b < -10) suffix = '3'; // 上翻
+                    else suffix = '4';             // 下翻
+
+                    // 核心邏輯：動態組合成檔名，例如 b-1.png, r-3.png
+                    const targetImg = document.getElementById('main-res');
+                    targetImg.src = _0x_mode + '-' + suffix + '.png';
+                    targetImg.classList.add('show-now');
+                }
+            }
+
+            _0x1.width=window.innerWidth; _0x1.height=window.innerHeight;
+            _0x2.lineJoin="round"; _0x2.lineCap="round";
+            _0x_btn_init('#000000', 3, 'b');
+
+            const getXY = (e) => {
+                let x = e.clientX || (e.touches && e.touches[0].clientX);
+                let y = e.clientY || (e.touches && e.touches[0].clientY);
+                return [x, y];
+            };
+
+            const startDraw = (e) => {
+                _0x_ios_request();
+                _0x3=true; [_0x4, _0x5] = getXY(e);
+            };
+
+            const moveDraw = (e) => {
+                if(!_0x3) return;
+                const [curX, curY] = getXY(e);
+                _0x2.beginPath(); _0x2.moveTo(_0x4, _0x5); _0x2.lineTo(curX, curY); _0x2.stroke();
+                [_0x4, _0x5] = [curX, curY];
+            };
+
+            _0x1.addEventListener('mousedown', startDraw);
+            _0x1.addEventListener('touchstart', startDraw, {passive:false});
+            window.addEventListener('mousemove', moveDraw);
+            window.addEventListener('touchmove', moveDraw, {passive:false});
+            window.addEventListener('mouseup', () => _0x3=false);
+            window.addEventListener('touchend', () => _0x3=false);
+
+            document.onkeydown=function(e){if(e.keyCode==123||(e.ctrlKey&&e.shiftKey&&(e.keyCode==73||e.keyCode==74))||(e.ctrlKey&&e.keyCode==85))return false;};
+        })();
+        // ]]>
+    </script>
+</body>
+</html>
