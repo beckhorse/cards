@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Magic Painter Pro</title>
+    <style>
+        body { margin: 0; background: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        #canvas { width: 100vw; height: 100vh; display: block; }
+        #status { position: fixed; top: 10px; left: 10px; color: #ccc; font-size: 12px; pointer-events: none; }
+        
+        /* 預言圖片樣式：預設隱藏 */
+        .prediction {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%; display: none;
+            opacity: 0; transition: opacity 1s ease-in;
+        }
+        
+        /* 手寫筆跡動畫效果 */
+        .show-drawing { display: block; opacity: 1; animation: draw 2s ease-out; }
+        @keyframes draw { from { filter: blur(10px); opacity: 0; } to { filter: blur(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="status">小畫家模式已啟動...</div>
+    <canvas id="canvas"></canvas>
+
+    <div id="res-A" class="prediction"><h1>🍎 (物品 A)</h1></div>
+    <div id="res-B" class="prediction"><h1>🍌 (物品 B)</h1></div>
+    <div id="res-C" class="prediction"><h1>🍇 (物品 C)</h1></div>
+    <div id="res-D" class="prediction"><h1>🍉 (物品 D)</h1></div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let isFaceDown = false;
+        let predictionTriggered = false;
+
+        // 設定畫布尺寸
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // 簡單的小畫家功能 (假裝在畫畫)
+        canvas.addEventListener('pointermove', (e) => {
+            if (predictionTriggered) return;
+            ctx.fillStyle = "#333";
+            ctx.beginPath();
+            ctx.arc(e.clientX, e.clientY, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // 請求權限 (iOS 必備)
+        function requestPermission() {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().catch(console.error);
+            }
+        }
+        canvas.addEventListener('click', requestPermission);
+
+        window.addEventListener('deviceorientation', (event) => {
+            if (predictionTriggered) return;
+
+            let beta = event.beta;   // X軸 (前後翻轉)
+            let gamma = event.gamma; // Y軸 (左右翻轉)
+
+            // 判斷螢幕是否朝下 (通常 beta 接近 180 或 -180)
+            if (Math.abs(beta) > 160) {
+                isFaceDown = true;
+                document.getElementById('status').innerText = "預言已鎖定...";
+            }
+
+            // 當手機從朝下翻轉回朝上 (beta 接近 0)
+            if (isFaceDown && Math.abs(beta) < 30) {
+                isFaceDown = false;
+                predictionTriggered = true; // 防止重複觸發
+
+                // 判斷翻轉方向邏輯
+                if (gamma > 40) {
+                    showResult('res-A'); // 由左向右翻 (Gamma 正值)
+                } else if (gamma < -40) {
+                    showResult('res-B'); // 由右向左翻 (Gamma 負值)
+                } else if (beta < -20) {
+                    showResult('res-C'); // 由下向上翻 (Beta 負向)
+                } else {
+                    showResult('res-D'); // 由上向下翻 (Beta 正向)
+                }
+            }
+        });
+
+        function showResult(id) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // 清空畫布
+            const el = document.getElementById(id);
+            el.classList.add('show-drawing');
+            document.getElementById('status').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
