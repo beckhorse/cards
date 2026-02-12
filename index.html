@@ -2,51 +2,64 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Sketch Pad">
     <link rel="apple-touch-icon" href="icon-192.png">
-
     <link rel="manifest" href="manifest.json">
 
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
-          navigator.serviceWorker.register('sw.js')
-            .then(reg => console.log('SW OK'))
-            .catch(err => console.log('SW Fail', err));
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Fail', err));
         });
       }
     </script>
     
     <title>Sketch Pad Pro</title>
     <style>
-        body{margin:0;background:#fff;overflow:hidden;touch-action:none;font-family:sans-serif;width:100vw;height:100vh}
-        #canvas{width:100vw;height:100vh;display:block;position:relative;z-index:5}
-        .toolbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;background:rgba(255,255,255,.95);padding:12px 18px;border-radius:50px;box-shadow:0 4px 20px rgba(0,0,0,.15);z-index:100;align-items:center}
-        .color-btn{width:24px;height:24px;border-radius:50%;border:1px solid #ddd;cursor:pointer}
-        .divider{width:1px;height:24px;background:#ddd;margin:0 5px}
-        .icon-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:5px}
-        #prediction-layer{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:1;width:80vw;display:flex;justify-content:center;align-items:center}
-        .prediction{display:none;max-width:100%;max-height:60vh;object-fit:contain}
-        .show-now{display:block!important}
+        /* 修正 PWA 在 iPhone 11 上的全螢幕佈局 */
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            overflow: hidden; background: #fff; touch-action: none;
+        }
+        #canvas { 
+            display: block; width: 100vw; height: 100vh; 
+            position: absolute; top: 0; left: 0; z-index: 5;
+        }
+        .toolbar { 
+            position: fixed; bottom: calc(20px + env(safe-area-inset-bottom)); 
+            left: 50%; transform: translateX(-50%); 
+            display: flex; gap: 10px; background: rgba(255,255,255,.95); 
+            padding: 12px 18px; border-radius: 50px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,.15); z-index: 100; align-items: center;
+        }
+        .color-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid #ddd; cursor: pointer; }
+        .divider { width: 1px; height: 24px; background: #ddd; margin: 0 5px; }
+        .icon-btn { background: none; border: none; font-size: 20px; cursor: pointer; padding: 5px; }
         
-        /* 隱形遮罩：iPhone 權限觸發的關鍵 */
-        #init-overlay{
-            position:fixed;top:0;left:0;width:100%;height:100%;
-            z-index:9999;background:rgba(255,255,255,0.01); /* 微小透明度確保點擊被捕捉 */
+        #prediction-layer { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); 
+            pointer-events: none; z-index: 1; width: 80vw; display: flex; justify-content: center; align-items: center;
+        }
+        .prediction { display: none; max-width: 100%; max-height: 60vh; object-fit: contain; }
+        .show-now { display: block !important; }
+        
+        /* 核心修正：覆蓋全螢幕的透明層，用於觸發權限 */
+        #init-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 9999; background: rgba(0,0,0,0); /* 絕對透明但可點擊 */
         }
     </style>
 </head>
 <body oncontextmenu="return false;">
 
     <div id="init-overlay"></div>
-
     <canvas id="canvas"></canvas>
 
-    <div class="toolbar" id="toolbar">
+    <div class="toolbar">
         <div class="color-btn" style="background:#000000" onclick="_0x4a2b('#000000',3)"></div>
         <div class="color-btn" style="background:#be0000" onclick="_0x4a2b('#be0000',3)"></div>
         <div class="color-btn" style="background:#2ed573" onclick="_0x4a2b('#2ed573',3)"></div>
@@ -64,100 +77,102 @@
         <img id="res-D" class="prediction" src="s12.png">
     </div>
 
-    <script type="text/javascript">
+    <script>
         (function(){
-            const _0x1=document.getElementById('canvas'),_0x2=_0x1.getContext('2d'),_0x_ov=document.getElementById('init-overlay');
-            let _0x3=false,_0x4=0,_0x5=0,_0x6=false,_0x7=false,_0x8=false;
-            
-            // 座標計算修正
-            function getCanvasPos(e) {
-                const rect = _0x1.getBoundingClientRect();
+            const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d'), overlay = document.getElementById('init-overlay');
+            let drawing = false, lastX = 0, lastY = 0, shakeTriggered = false, shown = false, permissionGranted = false;
+
+            // --- 修正 2: 精準座標演算法 ---
+            function getPos(e) {
+                const rect = canvas.getBoundingClientRect();
+                // 優先使用觸控點座標，若無則使用滑鼠座標
                 const clientX = e.clientX || (e.touches && e.touches[0].clientX);
                 const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                
+                // 計算相對於畫布的比例座標
                 return {
-                    x: (clientX - rect.left) * (_0x1.width / rect.width),
-                    y: (clientY - rect.top) * (_0x1.height / rect.height)
+                    x: (clientX - rect.left) * (canvas.width / rect.width),
+                    y: (clientY - rect.top) * (canvas.height / rect.height)
                 };
             }
 
-            window._0x4a2b=function(c,w){
-                _0x2.strokeStyle=c;
-                _0x2.lineWidth=w;
+            window._0x4a2b = (c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; };
+            window._0x1f3c = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                document.querySelectorAll('.prediction').forEach(i => i.classList.remove('show-now'));
+                shown = false; shakeTriggered = false;
             };
 
-            window._0x1f3c=function(){
-                _0x2.clearRect(0,0,_0x1.width,_0x1.height);
-                document.querySelectorAll('.prediction').forEach(i=>i.classList.remove('show-now'));
-                _0x7=false;_0x6=false;
-            };
-
-            // 核心修正：iOS 權限請求邏輯
-            async function _0xa() {
-                if (_0x8) return;
+            // --- 修正 3: iPhone 11 PWA 權限觸發器 ---
+            async function requestMotionPermission() {
+                if (permissionGranted) return;
                 
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     try {
-                        const response = await DeviceOrientationEvent.requestPermission();
-                        if (response === 'granted') {
-                            window.addEventListener('deviceorientation', _0xb, true);
-                            _0x8 = true;
-                            console.log("iOS Sensor Granted");
+                        // 在 iOS PWA 中，這行必須由 click 事件直接誘導
+                        const state = await DeviceOrientationEvent.requestPermission();
+                        if (state === 'granted') {
+                            window.addEventListener('deviceorientation', handleMotion, true);
+                            permissionGranted = true;
                         }
-                    } catch (err) {
-                        console.error("DeviceOrientation permission error:", err);
-                    }
+                    } catch (e) { console.error(e); }
                 } else {
-                    window.addEventListener('deviceorientation', _0xb, true);
-                    _0x8 = true;
+                    window.addEventListener('deviceorientation', handleMotion, true);
+                    permissionGranted = true;
                 }
             }
 
-            function _0xb(e){
-                if(_0x7)return;
-                let b=e.beta,g=e.gamma;
-                if(Math.abs(b)>155)_0x6=true;
-                if(_0x6&&Math.abs(b)<60){
-                    _0x7=true;_0x6=false;
-                    _0x2.clearRect(0,0,_0x1.width,_0x1.height);
-                    let id=(g>30)?'res-A':(g<-30)?'res-B':(b<-10)?'res-C':'res-D';
+            function handleMotion(e) {
+                if (shown) return;
+                let b = e.beta, g = e.gamma;
+                if (Math.abs(b) > 155) shakeTriggered = true;
+                if (shakeTriggered && Math.abs(b) < 60) {
+                    shown = true; shakeTriggered = false;
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    let id = (g > 30) ? 'res-A' : (g < -30) ? 'res-B' : (b < -10) ? 'res-C' : 'res-D';
                     document.getElementById(id).classList.add('show-now');
                 }
             }
 
-            function resize() {
-                _0x1.width=window.innerWidth;
-                _0x1.height=window.innerHeight;
-                _0x2.lineJoin="round";_0x2.lineCap="round";
-                _0x4a2b('#000000',3);
+            // 初始化與事件綁定
+            function init() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+                _0x4a2b('#000000', 3);
             }
-            window.addEventListener('resize', resize);
-            resize();
 
-            // 關鍵：改用 'click' 事件來觸發 iOS 權限視窗
-            _0x_ov.addEventListener('click', function(e) {
-                _0xa(); // 觸發權限視窗
-                this.style.display = 'none'; // 移除遮罩
-                console.log("Overlay Clicked - Permission Requested");
-            });
+            // 第一次點擊攔截：同時解決權限與啟動畫筆
+            overlay.addEventListener('touchstart', (e) => {
+                requestMotionPermission(); // 立即請求權限
+                overlay.style.display = 'none'; // 移除遮罩
+                drawing = true;
+                const p = getPos(e);
+                [lastX, lastY] = [p.x, p.y];
+            }, { passive: false });
 
-            // 繪圖事件處理
-            _0x1.addEventListener('pointerdown', e => {
-                _0x3 = true;
-                const pos = getCanvasPos(e);
-                [_0x4, _0x5] = [pos.x, pos.y];
-            });
-            _0x1.addEventListener('pointermove',e=>{
-                if(!_0x3)return;
-                const pos = getCanvasPos(e);
-                _0x2.beginPath();
-                _0x2.moveTo(_0x4,_0x5);
-                _0x2.lineTo(pos.x,pos.y);
-                _0x2.stroke();
-                [_0x4, _0x5] = [pos.x, pos.y];
-            });
-            _0x1.addEventListener('pointerup',()=>_0x3=false);
+            // 繪圖邏輯
+            canvas.addEventListener('touchstart', (e) => {
+                drawing = true;
+                const p = getPos(e);
+                [lastX, lastY] = [p.x, p.y];
+            }, { passive: false });
 
-            document.onkeydown=function(e){if(e.keyCode==123||(e.ctrlKey&&e.shiftKey&&(e.keyCode==73||e.keyCode==74))||(e.ctrlKey&&e.keyCode==85))return false;};
+            canvas.addEventListener('touchmove', (e) => {
+                if (!drawing) return;
+                e.preventDefault(); // 禁止頁面捲動
+                const p = getPos(e);
+                ctx.beginPath();
+                ctx.moveTo(lastX, lastY);
+                ctx.lineTo(p.x, p.y);
+                ctx.stroke();
+                [lastX, lastY] = [p.x, p.y];
+            }, { passive: false });
+
+            canvas.addEventListener('touchend', () => drawing = false);
+
+            window.addEventListener('resize', init);
+            init();
         })();
     </script>
 </body>
